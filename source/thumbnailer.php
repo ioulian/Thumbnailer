@@ -8,7 +8,7 @@
  *                                     By Ioulian Alexeev, me@alexju.be
  * 
  *
- * VERSION: v1.0.10
+ * VERSION: v1.0.11
  *
  * OVERVIEW:
  *
@@ -25,6 +25,7 @@ class X_Image_Thumbnailer {
 	// Variables you can change:
 	// Cache: turn off for development, but don't forget to turn it back on
 	private $_cache = true;
+	// '' is a cachefile, TODO: check not on extension, but on image type itself
 	private $_safeExtensions = array('jpg', 'jpeg', 'png', 'gif', '');
 	private $_defaults = array(
 		// Image path (relative to root)
@@ -78,6 +79,10 @@ class X_Image_Thumbnailer {
 		
 		// Position of the image inside the thumbnail: "left", "right", "center", "top", "bottom"
 		'pos' => 'center',
+		
+		// Enlarge the image to fit the thumbnail
+		// If set to false, The original image will not be scaled if it's smaller than the thumbnailer
+		'enlarge' => 'true',
 	);
 	
 	// Project root path
@@ -119,6 +124,7 @@ class X_Image_Thumbnailer {
 	
 	/**
 	 * Sets path variables.
+	 * @return void
 	 */
 	private function _makeFullPath() {
 		if ($this->_options['fullpath'] === '') {
@@ -136,6 +142,7 @@ class X_Image_Thumbnailer {
 	
 	/**
 	 * Checks if the file extension is safe for processing
+	 * @return void
 	 */
 	private function _checkIfFileIsSafe() {
 		if (file_exists($this->_options['fullpath'])) {
@@ -182,6 +189,7 @@ class X_Image_Thumbnailer {
 	
 	/**
 	* Checks if thumb-cache exists, if not it makes a new thumb and saves it.
+	* @return Object Thumbnailer class
 	*/
 	private function _handleThumbRequest() {
 		// Check for stored cache
@@ -204,8 +212,12 @@ class X_Image_Thumbnailer {
 		return $this;
 	}
 	
+	/**
+	 * Sets headers before outputting the image
+	 * @return void
+	 */
 	private function _setOutputHeaders() {
-		// Content type
+		// Set content type
 		$contentType = 'jpeg';
 		if ($this->_options['type'] !== '') {
 			$contentType = $this->_options['type'];
@@ -219,13 +231,15 @@ class X_Image_Thumbnailer {
 		header('Content-type: image/'.$contentType);
 		
 		// Check if user wants to download
-		if ($this->_options['download'] != '') {
+		if ($this->_options['download'] !== '') {
 			$ext = $contentType;
 			if ($ext === 'jpeg') {
 				$ext = 'jpg';
 			}
+
 			header("Content-Disposition: attachment; filename=".$this->_options['download'].".".$ext);
 		}
+
 		// Show image
 		if ($this->_cache) {
 			// Sets cache headers
@@ -240,6 +254,7 @@ class X_Image_Thumbnailer {
 	
 	/**
 	 * Sets headers and outputs the image
+	 * @return void
 	 */
 	public function show() {
 		$this->_handleThumbRequest();
@@ -259,6 +274,7 @@ class X_Image_Thumbnailer {
 	
 	/**
 	* Clears thumb cache
+	* @return Object Thumbnailer class
 	*/
 	public function clearThumbCache() {
 		$dir = opendir($this->_cachePath);
@@ -280,7 +296,7 @@ class X_Image_Thumbnailer {
 	* Makes a thumb from an image or generates dummy image
 	*
 	* @param string $src Image source
-	* @returns ImageResourceIdentifier
+	* @return ImageResourceIdentifier
 	*/
 	public function makeThumb() {
 		$image = null;
@@ -298,7 +314,7 @@ class X_Image_Thumbnailer {
 	* http://www.php.net/manual/en/function.fsockopen.php#39948
 	*
 	* @param string $link Url to check
-	* @returns bool
+	* @return bool
 	*/
 	private function _urlExists($link) {        
         $url_parts = @parse_url($link);
@@ -340,7 +356,7 @@ class X_Image_Thumbnailer {
 	* Checks if a string is a url or a path on the HDD
 	*
 	* @param string $path Path or Url to check
-	* @returns bool
+	* @return bool
 	*/
 	private function _isExternPath($path) {
 		return (strpos($path, 'http://') === 0 || strpos($path, 'https://') === 0);
@@ -350,7 +366,7 @@ class X_Image_Thumbnailer {
 	* Makes a dummy image
 	*
 	* @param string $image Image source
-	* @returns ImageResourceIdentifier
+	* @return ImageResourceIdentifier
 	*/
 	public function makeDummyImage() {
 		$background = $this->_hex2RGB($this->_options['bg']);
@@ -404,9 +420,9 @@ class X_Image_Thumbnailer {
 	}
 	
 	/**
-	* Creates image
+	* Creates ImageResourceIdentifier from a file
 	*
-	* @return Image
+	* @return ImageResourceIdentifier
 	*/
 	private function _createImageFromFile() {
 		$type = $this->_getImageType($this->_options['fullpath']);
@@ -424,26 +440,29 @@ class X_Image_Thumbnailer {
 	}
 	
 	/**
-	* Resizes image image
+	* Resizes image
 	*
-	* @return Image
+	* @return ImageResourceIdentifier
 	*/
 	public function resizeImage() {
+		// Get original values and calculate ratio
 		list($widthOriginal, $heightOriginal) = getimagesize($this->_options['fullpath']);
 		$ratioOriginal = $widthOriginal / $heightOriginal;
 		
+		// Sanity check
 		if ((int)$this->_options['w'] <= 0 && (int)$this->_options['h'] <= 0) {
 			$this->_options['w'] = $widthOriginal;
 			$this->_options['h'] = $heightOriginal;
 		}
 		
+		// Set max dimensions
 		$widthMax = (int)$this->_options['w'];
 		$heightMax = (int)$this->_options['h'];
 		
+		// Create image resource
 		$img = $this->_createImageFromFile();
 		
-		$x = 0;
-		$y = 0;
+		// Resize the thumbnail
 		if ($this->_options['resize'] === 'true') { // Resize = the size of the image will be calculated upon resize
 			$ratio = 1;
 			if ($widthMax <= 0) {
@@ -456,6 +475,11 @@ class X_Image_Thumbnailer {
 			
 			$widthNew = $widthOriginal * $ratio;
 			$heightNew = $heightOriginal * $ratio;
+
+			if ($this->_options['enlarge'] === 'false') {
+				$widthNew = ($widthNew >= $widthOriginal) ? $widthOriginal : $widthNew;
+				$heightNew = ($heightNew >= $heightOriginal) ? $heightOriginal : $heightNew;
+			}
 		} else if ($this->_options['resize'] === 'false') { // Do not resize = the size will be always the same
 			if ($this->_options['fill'] === 'true') { // Fill = no bars around the image = the image is cropped
 				if ($widthMax / $heightMax >= $ratioOriginal) {
@@ -474,8 +498,17 @@ class X_Image_Thumbnailer {
 					$heightNew = $heightMax;
 				}
 			}
-			
-			// Position
+		}
+
+		// Use original size if image is smaller and enlarge is set to false
+		if ($this->_options['enlarge'] === 'false') {
+			$widthNew = ($widthNew >= $widthOriginal) ? $widthOriginal : $widthNew;
+			$heightNew = ($heightNew >= $heightOriginal) ? $heightOriginal : $heightNew;
+		}
+
+		// Position
+		$x = $y = 0;
+		if ($this->_options['resize'] === 'false') {
 			$x = ($widthMax - $widthNew) / 2;
 			$y = ($heightMax - $heightNew) / 2;
 			
@@ -514,10 +547,9 @@ class X_Image_Thumbnailer {
 		}
 		
 		// Draw bg
-		if ($this->_options['transparent'] === 'false'
-			|| ($this->_options['type'] === 'jpg'
-				|| $this->_options['type'] === 'jpeg')
-			|| ($this->_options['type'] === '' && $this->_getImageType($this->_options['fullpath']) === "jpeg")
+		if ($this->_options['transparent'] === 'false' ||
+				($this->_options['type'] === 'jpg' || $this->_options['type'] === 'jpeg') ||
+				($this->_options['type'] === '' && $this->_getImageType($this->_options['fullpath']) === "jpeg")
 			) {
 			$background = $this->_hex2RGB($this->_options['bg']);
 			imagefill($new, 0, 0, imagecolorallocate($new, $background['red'], $background['green'], $background['blue']));
@@ -529,11 +561,11 @@ class X_Image_Thumbnailer {
 	}
 	
 	/**
-	* Makes an image from data
+	* Makes and saves an image from data
 	*
 	* @param image $image Image you want to make
 	* @param string $path Path to save the image to
-	* @returns image
+	* @return ImageResourceIdentifier
 	*/
 	private function _toImage($image, $path = null) {
 		if ($this->_options['type'] === '') {
@@ -559,7 +591,7 @@ class X_Image_Thumbnailer {
 	*
 	* @param image $image Image you want to save
 	* @param string $name Name of the image
-	* @returns bool
+	* @return bool
 	*/
 	public function saveImage($name) {
 		// Make cache dir if needed
@@ -567,6 +599,11 @@ class X_Image_Thumbnailer {
 		return $this->_toImage($this->_image, $name);
 	}
 	
+	/**
+	 * Checks if dir exists and makes one if not
+	 * @param  string $dir Directory name
+	 * @return void
+	 */
 	private function _makeDir($dir) {
 		if (!is_dir($dir)) {
 			mkdir($dir, 0777, true);
@@ -602,9 +639,9 @@ class X_Image_Thumbnailer {
 	/**
 	* Convert a hexa decimal color code to its RGB equivalent
 	*
-	* @param string $hexStr (hexadecimal color value)
-	* @param boolean $returnAsString (if set true, returns the value separated by the separator character. Otherwise returns associative array)
-	* @param string $seperator (to separate RGB values. Applicable only if second parameter is true.)
+	* @param string $hexStr         (hexadecimal color value)
+	* @param bool   $returnAsString (if set true, returns the value separated by the separator character. Otherwise returns associative array)
+	* @param string $seperator      (to separate RGB values. Applicable only if second parameter is true.)
 	* @return array or string (depending on second parameter. Returns False if invalid hex color value)
 	*/                                                                                                 
 	private function _hex2RGB($hexStr, $returnAsString = false, $seperator = ',') {
