@@ -18,7 +18,6 @@
  * TODO: use real casting of the settings + change the thumbhelper + cast them if user uses post or get values...
  */
 
- 
 // Uncomment for standalone usage
 /*$thumb = new Thumbnailer($_GET);
 $thumb->show();*/
@@ -243,6 +242,7 @@ class Thumbnailer {
 
 		// Per option overrides
 		$this->_options['pos'] = explode(',', $this->_options['pos']);
+		$this->_options['mirror'] = explode(',', $this->_options['mirror']);
 	}
 	
 	/**
@@ -713,10 +713,6 @@ class Thumbnailer {
 	 * @return void
 	 */
 	public function mirror($img) {
-		if (is_string($this->_options['mirror'])) {
-			$this->_options['mirror'] = [$this->_options['mirror']];
-		}
-
 		$needMirroring = false;
 		$width = imagesx($img);
 		$height = imagesy($img);
