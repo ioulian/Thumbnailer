@@ -20,10 +20,10 @@
 
  
 // Uncomment for standalone usage
-/*$thumb = new X_Image_Thumbnailer($_GET);
+/*$thumb = new Thumbnailer($_GET);
 $thumb->show();*/
 
-class X_Image_Thumbnailer {
+class Thumbnailer {
 	// Variables you can change:
 	// Cache: turn off for development, but don't forget to turn it back on
 	private $_cache = true;
