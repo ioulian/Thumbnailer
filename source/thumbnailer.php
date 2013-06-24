@@ -8,12 +8,14 @@
  *                                     By Ioulian Alexeev, me@alexju.be
  * 
  *
- * VERSION: v1.0.11
+ * VERSION: v1.0.19
  *
  * OVERVIEW:
  *
  * Creates a thumbnail on the fly for a .jpg or a .png image.
  * It can also cache the thumbnail for better performance.
+ *
+ * TODO: use real casting of the settings + change the thumbhelper + cast them if user uses post or get values...
  */
 
  
@@ -26,7 +28,7 @@ class X_Image_Thumbnailer {
 	// Cache: turn off for development, but don't forget to turn it back on
 	private $_cache = true;
 	// '' is a cachefile, TODO: check not on extension, but on image type itself
-	private $_safeExtensions = array('jpg', 'jpeg', 'png', 'gif', '');
+	private $_safeExtensions = array('jpg', 'jpeg', 'png', 'gif', 'tmp', '');
 	private $_defaults = array(
 		// Image path (relative to root)
 		'img' => '',
@@ -83,6 +85,64 @@ class X_Image_Thumbnailer {
 		// Enlarge the image to fit the thumbnail
 		// If set to false, The original image will not be scaled if it's smaller than the thumbnailer
 		'enlarge' => 'true',
+		
+		// Scales the thumbnail
+		// 100x50px &scale=2 = 200x100px
+		'scale' => '1',
+		
+		// Image filters
+		// You can pass an array with filters
+		// Filters will be applied by their sorting in the array
+		'filter' => '',
+		
+		// Mirror image
+		// You can pass a string or an array of these values:
+		// 'horizontal' or 'vertical' (you can pass both)
+		'mirror' => '',
+	);
+
+	private $_possibleImageFilters = array(
+		'negate' => array(
+			'name' => IMG_FILTER_NEGATE,
+		),
+		'grayscale' => array(
+			'name' => IMG_FILTER_GRAYSCALE,
+		),
+		'brightness' => array(
+			'name' => IMG_FILTER_BRIGHTNESS,
+			'numArgs' => 1
+		),
+		'contrast' => array(
+			'name' => IMG_FILTER_CONTRAST,
+			'numArgs' => 1
+		),
+		'colorize' => array(
+			'name' => IMG_FILTER_COLORIZE,
+			'numArgs' => 4
+		),
+		'edgedetect' => array(
+			'name' => IMG_FILTER_EDGEDETECT,
+		),
+		'emboss' => array(
+			'name' => IMG_FILTER_EMBOSS,
+		),
+		'guassianblur' => array(
+			'name' => IMG_FILTER_GAUSSIAN_BLUR,
+		),
+		'blur' => array(
+			'name' => IMG_FILTER_SELECTIVE_BLUR,
+		),
+		'meanremoval' => array(
+			'name' => IMG_FILTER_MEAN_REMOVAL,
+		),
+		'smooth' => array(
+			'name' => IMG_FILTER_SMOOTH,
+			'numArgs' => 1
+		),
+		'pixelate' => array(
+			'name' => IMG_FILTER_PIXELATE,
+			'numArgs' => 2
+		),
 	);
 	
 	// Project root path
@@ -114,6 +174,9 @@ class X_Image_Thumbnailer {
 		// Make fullpath
 		$this->_makeFullPath();
 		$this->_checkIfFileIsSafe();
+
+		// Check if we need to increase image size for retina display
+		$this->_checkIfRetinaResNeeded();
 		
 		if ($this->_options['action'] === 'clearcache') {
 			$this->clearThumbCache();
@@ -121,11 +184,23 @@ class X_Image_Thumbnailer {
 		
 		return $this;
 	}
+
+	private function _checkIfRetinaResNeeded() {
+		$retinaPart = '@2x.';
+		if (strpos($this->_options['fullpath'], $retinaPart) !== false) {
+			// Set the scale
+			$this->setOption('scale', (float)$this->_options['scale'] * 2);
+		}
+
+		// Remove the part from the image filename
+		$this->_options['fullpath'] = str_replace($retinaPart, '.', $this->_options['fullpath']);
+		$this->_options['img'] = str_replace($retinaPart, '.', $this->_options['img']);
+	}
 	
 	/**
-	 * Sets path variables.
-	 * @return void
-	 */
+	* Sets path variables.
+	* @return void
+	*/
 	private function _makeFullPath() {
 		if ($this->_options['fullpath'] === '') {
 			if ($this->_isExternPath($this->_options['img'])) {
@@ -141,13 +216,13 @@ class X_Image_Thumbnailer {
 	}
 	
 	/**
-	 * Checks if the file extension is safe for processing
-	 * @return void
-	 */
+	* Checks if the file extension is safe for processing
+	* @return void
+	*/
 	private function _checkIfFileIsSafe() {
 		if (file_exists($this->_options['fullpath'])) {
 			$info = pathinfo($this->_options['fullpath']);
-			if (!in_array(strtolower($info['extension']), $this->_safeExtensions)) {
+			if (isset($info['extension']) && !in_array(strtolower($info['extension']), $this->_safeExtensions)) {
 				throw new Exception('Unsafe extension ".'.$info['extension'].'"! Aborting script.');
 			}
 		}
@@ -165,6 +240,9 @@ class X_Image_Thumbnailer {
 				$this->_options[$key] = $params[$key];
 			}
 		}
+
+		// Per option overrides
+		$this->_options['pos'] = explode(',', $this->_options['pos']);
 	}
 	
 	/**
@@ -193,8 +271,7 @@ class X_Image_Thumbnailer {
 	*/
 	private function _handleThumbRequest() {
 		// Check for stored cache
-		// TODO: urlencode the parameters and not the querystring
-		$this->_cachedFileName = md5(urlencode($_SERVER['QUERY_STRING']));
+		$this->_cachedFileName = md5($_SERVER['QUERY_STRING'] . serialize($this->_options));
 		$this->_cachedFileExists = file_exists($this->_cachePath.$this->_pathSeparator.$this->_cachedFileName);
 		
 		// Create thumb
@@ -213,9 +290,9 @@ class X_Image_Thumbnailer {
 	}
 	
 	/**
-	 * Sets headers before outputting the image
-	 * @return void
-	 */
+	* Sets headers before outputting the image
+	* @return void
+	*/
 	private function _setOutputHeaders() {
 		// Set content type
 		$contentType = 'jpeg';
@@ -246,6 +323,7 @@ class X_Image_Thumbnailer {
 			$cacheTime = 3600 * 24 * (int)$this->_options['cachetime'];
 			header('Expires: '.gmdate("D, d M Y H:i:s", time() + $cacheTime).' GMT');
 			header('Cache-Control: max-age='.$cacheTime.', public');
+			header('Pragma: public');
 			
 			// TODO: check the time of the created cache file
 			header('Last-Modified: '.gmdate('D, d M Y H:i:s', time()).' GMT');
@@ -253,9 +331,9 @@ class X_Image_Thumbnailer {
 	}
 	
 	/**
-	 * Sets headers and outputs the image
-	 * @return void
-	 */
+	* Sets headers and outputs the image
+	* @return void
+	*/
 	public function show() {
 		$this->_handleThumbRequest();
 		$this->_setOutputHeaders();
@@ -317,40 +395,40 @@ class X_Image_Thumbnailer {
 	* @return bool
 	*/
 	private function _urlExists($link) {        
-        $url_parts = @parse_url($link);
+		$url_parts = @parse_url($link);
 
-        if (empty($url_parts["host"])) { 
+		if (empty($url_parts["host"])) { 
 			return false;
 		}
 
-        if (!empty($url_parts["path"])) {
-            $documentpath = $url_parts["path"];
-        } else {
-            $documentpath = "/";
-        }
+		if (!empty($url_parts["path"])) {
+			$documentpath = $url_parts["path"];
+		} else {
+			$documentpath = "/";
+		}
 
-        if (!empty($url_parts["query"])) {
-            $documentpath .= "?" . $url_parts["query"];
-        }
+		if (!empty($url_parts["query"])) {
+			$documentpath .= "?" . $url_parts["query"];
+		}
 
-        $host = $url_parts["host"];
-        $port = (isset($url_parts["port"])) ? $url_parts["port"] : "80";
+		$host = $url_parts["host"];
+		$port = (isset($url_parts["port"])) ? $url_parts["port"] : "80";
 
-        $socket = @fsockopen($host, $port, $errno, $errstr, 30);
-        if (!$socket) {
-            return false;
-        } else {
-            fwrite($socket, "HEAD ".$documentpath." HTTP/1.0\r\nHost: $host\r\n\r\n");
-            $http_response = fgets($socket, 22);
-            
-            if (ereg("200 OK", $http_response, $regs)) {
-                return true;
-                fclose($socket);
-            } else {
-                return false;
-            }
-        }
-    }
+		$socket = @fsockopen($host, $port, $errno, $errstr, 30);
+		if (!$socket) {
+			return false;
+		} else {
+			fwrite($socket, "HEAD ".$documentpath." HTTP/1.0\r\nHost: $host\r\n\r\n");
+			$http_response = fgets($socket, 22);
+			
+			if (strpos($http_response, '200 OK') !== false || strpos($http_response, '302 Found') !== false) {
+				return true;
+				fclose($socket);
+			} else {
+				return false;
+			}
+		}
+	}
 	
 	/**
 	* Checks if a string is a url or a path on the HDD
@@ -393,7 +471,7 @@ class X_Image_Thumbnailer {
 	* @return string Image type
 	*/
 	private function _getImageType($path) {
-		if (file_exists($path)) {
+		if (file_exists($path) || $this->_urlExists($path)) {
 			list($w, $h, $type) = getimagesize($path);
 			
 			switch ($type) { 
@@ -512,38 +590,53 @@ class X_Image_Thumbnailer {
 			$x = ($widthMax - $widthNew) / 2;
 			$y = ($heightMax - $heightNew) / 2;
 			
-			if ($this->_options['pos'] === 'left') {
+			if (in_array('left', $this->_options['pos'])) {
 				$x = 0;
-			} else if ($this->_options['pos'] === 'right') {
+			} else if (in_array('right', $this->_options['pos'])) {
 				$x = $widthMax - $widthNew;
-			} else if ($this->_options['pos'] === 'top') {
+			}
+
+			if (in_array('top', $this->_options['pos'])) {
 				$y = 0;
-			} else if ($this->_options['pos'] === 'bottom') {
+			} else if (in_array('bottom', $this->_options['pos'])) {
 				$y = $heightMax - $heightNew;
 			}
 		}
 
-		// Thumbnail
+		$x *= (float)$this->_options['scale'];
+		$y *= (float)$this->_options['scale'];
+
+		// Set thumbnail size
 		$new = null;
 		if ($this->_options['resize'] === 'true') {
-			$new = imagecreatetruecolor($widthNew, $heightNew);
+			$new = imagecreatetruecolor($widthNew * (float)$this->_options['scale'], $heightNew * (float)$this->_options['scale']);
 		} else if ($this->_options['resize'] === 'false') {
-			$new = imagecreatetruecolor($widthMax, $heightMax);
+			$new = imagecreatetruecolor($widthMax * (float)$this->_options['scale'], $heightMax * (float)$this->_options['scale']);
 		}
 		
 		// Preserve transparency
-		if (($this->_getImageType($this->_options['fullpath']) === "png" || $this->_options['type'] === 'png')
-			&& $this->_options['transparent'] !== 'false'
-			&& ($this->_options['type'] !== 'jpg'
-				|| $this->_options['type'] !== 'jpeg')
+		if ($this->_options['transparent'] !== 'false' &&
+				($this->_options['type'] !== 'jpg' ||
+					$this->_options['type'] !== 'jpeg')
 			) {
-			imagealphablending($new, false);
-			imagesavealpha($new, true);
-			
-			imagealphablending($img, true);
-            $colorTransparent = imagecolorallocatealpha($new, 255, 255, 255, 127);
-            imagefill($new, 0, 0, $colorTransparent);
-            
+			$transparentIndex = imagecolortransparent($img);
+
+			// If transparent index is set (for gif and png)
+			if ($transparentIndex >= 0) {
+				$transparentColor = imagecolorsforindex($img, $transparentIndex);
+				$transparentIndex = imagecolorallocate($new, $transparentColor['red'], $transparentColor['green'], $transparentColor['blue']);
+				imagefill($new, 0, 0, $transparentIndex);
+				imagecolortransparent($new, $transparentIndex);
+			} else if ($this->_getImageType($this->_options['fullpath']) === "png" ||
+					$this->_options['type'] === 'png') {
+				// If no transparent index is set, make one (only for png)
+				imagealphablending($new, false);
+				imagesavealpha($new, true);
+				
+				imagealphablending($img, true);
+				$colorTransparent = imagecolorallocatealpha($new, 255, 255, 255, 127);
+				imagefill($new, 0, 0, $colorTransparent);
+			}
 		}
 		
 		// Draw bg
@@ -555,9 +648,107 @@ class X_Image_Thumbnailer {
 			imagefill($new, 0, 0, imagecolorallocate($new, $background['red'], $background['green'], $background['blue']));
 		}
 		
-		imagecopyresampled($new, $img, $x, $y, 0, 0, round($widthNew), round($heightNew), round($widthOriginal), round($heightOriginal));
+		imagecopyresampled(
+			$new,
+			$img,
+			$x,
+			$y,
+			0,
+			0,
+			round($widthNew * (float)$this->_options['scale']),
+			round($heightNew * (float)$this->_options['scale']),
+			round($widthOriginal),
+			round($heightOriginal)
+		);
+
+		$this->applyFilter($new);
+		$new = $this->mirror($new);
 		
 		return $new;
+	}
+
+	/**
+	 * Applies php filter to an image, all php filters are supported
+	 * @param  Imageresource $img Image to apply filter to
+	 * @return void
+	 */
+	public function applyFilter($img) {
+		if (is_string($this->_options['filter'])) {
+			$this->_options['filter'] = array($this->_options['filter']);
+		}
+
+		foreach ($this->_options['filter'] as $filter) {
+			$options = explode(',', $filter);
+			if (!isset($options[0]) || !isset($this->_possibleImageFilters[$options[0]])) {
+				continue;
+			}
+
+			if (!isset($this->_possibleImageFilters[$options[0]]['numArgs'])) {
+				imagefilter($img, $this->_possibleImageFilters[$options[0]]['name']);
+			} else if ($this->_possibleImageFilters[$options[0]]['numArgs'] === 1) {
+				imagefilter($img, $this->_possibleImageFilters[$options[0]]['name'],
+					(isset($options[1])) ? $options[1] : null);
+			} else if ($this->_possibleImageFilters[$options[0]]['numArgs'] === 2) {
+				imagefilter($img, $this->_possibleImageFilters[$options[0]]['name'],
+					(isset($options[1])) ? $options[1] : null,
+					(isset($options[2])) ? $options[2] : null);
+			} else if ($this->_possibleImageFilters[$options[0]]['numArgs'] === 3) {
+				imagefilter($img, $this->_possibleImageFilters[$options[0]]['name'],
+					(isset($options[1])) ? $options[1] : null,
+					(isset($options[2])) ? $options[2] : null,
+					(isset($options[3])) ? $options[3] : null);
+			} else if ($this->_possibleImageFilters[$options[0]]['numArgs'] === 4) {
+				imagefilter($img, $this->_possibleImageFilters[$options[0]]['name'],
+					(isset($options[1])) ? $options[1] : null,
+					(isset($options[2])) ? $options[2] : null,
+					(isset($options[3])) ? $options[3] : null,
+					(isset($options[4])) ? $options[4] : null);
+			}
+		}
+	}
+
+	/**
+	 * Mirrors image (can be vertically, horisontally or both)
+	 * @param  Imageresource $img Image to mirror
+	 * @return void
+	 */
+	public function mirror($img) {
+		if (is_string($this->_options['mirror'])) {
+			$this->_options['mirror'] = [$this->_options['mirror']];
+		}
+
+		$needMirroring = false;
+		$width = imagesx($img);
+		$height = imagesy($img);
+
+		$srcX = 0;
+		$srcY = 0;
+		$srcWidth = $width;
+		$srcHeight = $height;
+
+		if (in_array('horizontal', $this->_options['mirror'])) {
+			$needMirroring = true;
+			$srcX = $width - 1;
+			$srcWidth = -$width;
+		}
+
+		if (in_array('vertical', $this->_options['mirror'])) {
+			$needMirroring = true;
+			$srcY = $height - 1;
+			$srcHeight = -$height;
+			
+		}
+
+		if ($needMirroring === false) {
+			return $img;
+		}
+
+		$imgNew = imagecreatetruecolor($width, $height);
+		if (imagecopyresampled($imgNew, $img, 0, 0, $srcX, $srcY, $width, $height, $srcWidth, $srcHeight)) {
+			return $imgNew;
+		}
+
+		return $img;
 	}
 	
 	/**
@@ -600,10 +791,10 @@ class X_Image_Thumbnailer {
 	}
 	
 	/**
-	 * Checks if dir exists and makes one if not
-	 * @param  string $dir Directory name
-	 * @return void
-	 */
+	* Checks if dir exists and makes one if not
+	* @param  string $dir Directory name
+	* @return void
+	*/
 	private function _makeDir($dir) {
 		if (!is_dir($dir)) {
 			mkdir($dir, 0777, true);
