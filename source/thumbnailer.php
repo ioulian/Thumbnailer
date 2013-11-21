@@ -8,7 +8,7 @@
  *                                     By Ioulian Alexeev, me@alexju.be
  * 
  *
- * VERSION: v1.0.19
+ * VERSION: v1.0.23
  *
  * OVERVIEW:
  *
@@ -16,13 +16,16 @@
  * It can also cache the thumbnail for better performance.
  *
  * TODO: use real casting of the settings + change the thumbhelper + cast them if user uses post or get values...
+ *
+ * Thanks to: https://github.com/chrisbliss18 for the ico generation code
  */
 
+ 
 // Uncomment for standalone usage
-/*$thumb = new Thumbnailer($_GET);
+/*$thumb = new X_Image_Thumbnailer($_GET);
 $thumb->show();*/
 
-class Thumbnailer {
+class X_Image_Thumbnailer {
 	// Variables you can change:
 	// Cache: turn off for development, but don't forget to turn it back on
 	private $_cache = true;
@@ -69,7 +72,7 @@ class Thumbnailer {
 		// Keep transparent .png's or make the bars around the image transparent
 		'transparent' => 'true',
 		
-		// Convert to image type ".jpg", ".jpeg", ".png"
+		// Convert to image type ".jpg", ".jpeg", ".png", ".ico"
 		'type' => '',
 		
 		// Currently only "clearcache" is supported, it clears the thumbnail cache ;)
@@ -98,6 +101,10 @@ class Thumbnailer {
 		// You can pass a string or an array of these values:
 		// 'horizontal' or 'vertical' (you can pass both)
 		'mirror' => '',
+		
+		// ICO format sizes
+		// Pass array with the sizes you want to put into an .ico file
+		'ico_sizes' => '256,128,64,32,16',
 	);
 
 	private $_possibleImageFilters = array(
@@ -151,6 +158,8 @@ class Thumbnailer {
 	private $_cachePath = '';
 	private $_cachedFileName = '';
 	private $_cachedFileExists = false;
+
+	private $_icoImages = [];
 	
 	// Params
 	private $_options = array();
@@ -168,7 +177,7 @@ class Thumbnailer {
 		$this->_root = ($root === null) ? getcwd() : $root;
 		$this->_makeDir($this->_root . $cacheRelativePath);
 		$this->_cachePath = realpath($this->_root . $cacheRelativePath);
-		$this->_pathSeparator = (PHP_OS === 'WINNT') ? '\\' : '/';
+		$this->_pathSeparator = DIRECTORY_SEPARATOR;
 		
 		// Make fullpath
 		$this->_makeFullPath();
@@ -197,11 +206,14 @@ class Thumbnailer {
 	}
 	
 	/**
-	* Sets path variables.
-	* @return void
-	*/
+	 * Sets path variables.
+	 * @return void
+	 */
 	private function _makeFullPath() {
 		if ($this->_options['fullpath'] === '') {
+			$this->_options['img'] = str_replace('http://'.$_SERVER['HTTP_HOST'], '', $this->_options['img']);
+			$this->_options['img'] = str_replace('https://'.$_SERVER['HTTP_HOST'], '', $this->_options['img']);
+
 			if ($this->_isExternPath($this->_options['img'])) {
 				$this->_options['fullpath'] = $this->_options['img'];
 			} else if ($this->_options['img'] === '') {
@@ -210,14 +222,14 @@ class Thumbnailer {
 				$this->_options['fullpath'] = $this->_root.$this->_options['img'];
 			}
 		} else {
-			$this->_options['img'] = str_replace($this->_root, "", $this->_options['fullpath']);
+			$this->_options['img'] = str_replace($this->_root, '', $this->_options['fullpath']);
 		}
 	}
 	
 	/**
-	* Checks if the file extension is safe for processing
-	* @return void
-	*/
+	 * Checks if the file extension is safe for processing
+	 * @return void
+	 */
 	private function _checkIfFileIsSafe() {
 		if (file_exists($this->_options['fullpath'])) {
 			$info = pathinfo($this->_options['fullpath']);
@@ -242,7 +254,7 @@ class Thumbnailer {
 
 		// Per option overrides
 		$this->_options['pos'] = explode(',', $this->_options['pos']);
-		$this->_options['mirror'] = explode(',', $this->_options['mirror']);
+		$this->_options['ico_sizes'] = explode(',', $this->_options['ico_sizes']);
 	}
 	
 	/**
@@ -273,31 +285,50 @@ class Thumbnailer {
 		// Check for stored cache
 		$this->_cachedFileName = md5($_SERVER['QUERY_STRING'] . serialize($this->_options));
 		$this->_cachedFileExists = file_exists($this->_cachePath.$this->_pathSeparator.$this->_cachedFileName);
+
+		// Check if the cached image is older than the file. We can only check if the image is on current server
+		$cacheIsOld = false;
+		if ($this->_cachedFileExists && !$this->_isExternPath($this->_options['img'])) {
+			if (file_exists($this->_options['fullpath']) &&
+					filemtime($this->_options['fullpath']) > filemtime($this->_cachePath.$this->_pathSeparator.$this->_cachedFileName)) {
+				$cacheIsOld = true;
+			}
+		}	
 		
 		// Create thumb
 		if (!$this->_cache // Always generate a new thumb if cache is off
-			|| (!$this->_cachedFileExists && $this->_cache) // Cache is on but there's no cached image
-		) {
+				|| (!$this->_cachedFileExists && $this->_cache) // Cache is on but there's no cached image
+				|| ($cacheIsOld && $this->_cache) // The new image file is newer than the cache
+			) {
 			$this->_image = $this->makeThumb();
 		}
 		
 		// Save thumbnail to cache if needed
-		if (!$this->_cachedFileExists && $this->_cache) {
+		if ($this->_cache && (!$this->_cachedFileExists || $cacheIsOld)) {
 			$this->saveImage($this->_cachePath.$this->_pathSeparator.$this->_cachedFileName);
-			imagedestroy($this->_image);
+			if ($this->_options['type'] === 'ico') {
+				$this->_image = null;
+			} else {
+				imagedestroy($this->_image);
+			}
 		}
+
 		return $this;
 	}
 	
 	/**
-	* Sets headers before outputting the image
-	* @return void
-	*/
+	 * Sets headers before outputting the image
+	 * @return void
+	 */
 	private function _setOutputHeaders() {
 		// Set content type
 		$contentType = 'jpeg';
 		if ($this->_options['type'] !== '') {
-			$contentType = $this->_options['type'];
+			if ($this->_options['type'] === 'ico') {
+				$contentType = 'x-icon';
+			} else {
+				$contentType = $this->_options['type'];
+			}
 		} else if ($this->_options['type'] === '') {
 			if ($this->_cache) {
 				$contentType = $this->_getImageType($this->_cachePath.$this->_pathSeparator.$this->_cachedFileName);
@@ -321,19 +352,19 @@ class Thumbnailer {
 		if ($this->_cache) {
 			// Sets cache headers
 			$cacheTime = 3600 * 24 * (int)$this->_options['cachetime'];
-			header('Expires: '.gmdate("D, d M Y H:i:s", time() + $cacheTime).' GMT');
+			$fileModifiedDate = filemtime($this->_cachePath.$this->_pathSeparator.$this->_cachedFileName);
+			header('Expires: '.gmdate("D, d M Y H:i:s", $fileModifiedDate + $cacheTime));
 			header('Cache-Control: max-age='.$cacheTime.', public');
 			header('Pragma: public');
 			
-			// TODO: check the time of the created cache file
-			header('Last-Modified: '.gmdate('D, d M Y H:i:s', time()).' GMT');
+			header('Last-Modified: '.gmdate('D, d M Y H:i:s', $fileModifiedDate));
 		}
 	}
 	
 	/**
-	* Sets headers and outputs the image
-	* @return void
-	*/
+	 * Sets headers and outputs the image
+	 * @return void
+	 */
 	public function show() {
 		$this->_handleThumbRequest();
 		$this->_setOutputHeaders();
@@ -379,13 +410,153 @@ class Thumbnailer {
 	public function makeThumb() {
 		$image = null;
 		if ($this->_urlExists($this->_options['fullpath']) || file_exists($this->_options['fullpath'])) {
+			if ($this->_options['type'] === "ico") {
+				$this->_options['w'] = '256';
+				$this->_options['h'] = '256';
+				$this->_options['resize'] = 'false';
+			}
+
 			$image = $this->resizeImage();
+			
+			if ($this->_options['type'] === "ico") {
+				$image = $this->_makeIco($image);
+			}
 		} else {
 			$image = $this->makeDummyImage();
 		}
 		
 		return $image;
 	}
+
+	/**
+	 * This function has been written by: https://github.com/chrisbliss18/php-ico/blob/master/class-php-ico.php
+	 */
+	private function _makeIco($image) {
+		foreach ($this->_options['ico_sizes'] as $size) {
+			if (!in_array((int)$size, [256, 128, 64, 32, 16])) {
+				continue;
+			}
+
+			$newImage = imagecreatetruecolor((int)$size, (int)$size);
+            
+            imagecolortransparent($newImage, imagecolorallocatealpha($newImage, 0, 0, 0, 127));
+            imagealphablending($newImage, false);
+            imagesavealpha($newImage, true);
+            
+            $source_width = imagesx($image);
+            $source_height = imagesy($image);
+            
+            if (imagecopyresampled($newImage, $image, 0, 0, 0, 0, (int)$size, (int)$size, $source_width, $source_height) === false) {
+                continue;
+            }
+            
+            $this->_addIcoImage($newImage);
+		}
+
+		return $this->_getIcoData();
+	}
+
+	/**
+	 * Take a GD image resource and change it into a raw BMP format.
+     * This function has been written by: https://github.com/chrisbliss18/php-ico/blob/master/class-php-ico.php
+	 * @param [type] $image [description]
+	 */
+	private function _addIcoImage($image) {
+        $width = imagesx($image);
+        $height = imagesy($image);
+        
+        $pixelData = [];
+        
+        $opacityData = [];
+        $currentOpacityVal = 0;
+        
+        for ($y = $height - 1; $y >= 0; $y--) {
+            for ($x = 0; $x < $width; $x++) {
+                $color = imagecolorat( $image, $x, $y );
+                
+                $alpha = ($color & 0x7F000000) >> 24;
+                $alpha = (1 - ($alpha / 127)) * 255;
+                
+                $color &= 0xFFFFFF;
+                $color |= 0xFF000000 & ($alpha << 24);
+                
+                $pixelData[] = $color;
+                
+                $opacity = ($alpha <= 127) ? 1 : 0;
+                
+                $currentOpacityVal = ($currentOpacityVal << 1) | $opacity;
+                
+                if ((($x + 1) % 32) == 0) {
+                    $opacityData[] = $currentOpacityVal;
+                    $currentOpacityVal = 0;
+                }
+            }
+            
+            if (($x % 32) > 0) {
+                while (($x++ % 32) > 0) {
+                    $currentOpacityVal = $currentOpacityVal << 1;
+                }
+                
+                $opacityData[] = $currentOpacityVal;
+                $currentOpacityVal = 0;
+            }
+        }
+        
+        $image_header_size = 40;
+        $color_mask_size = $width * $height * 4;
+        $opacity_mask_size = (ceil($width/ 32) * 4) * $height;
+        
+        
+        $data = pack('VVVvvVVVVVV', 40, $width, ($height * 2), 1, 32, 0, 0, 0, 0, 0, 0);
+        
+        foreach ($pixelData as $color) {
+            $data .= pack('V', $color);
+        }
+        
+        foreach ($opacityData as $opacity ) {
+            $data .= pack('N', $opacity);
+        }
+        
+        $image = [
+            'width' => $width,
+            'height' => $height,
+            'color_palette_colors' => 0,
+            'bits_per_pixel' => 32,
+            'size' => $image_header_size + $color_mask_size + $opacity_mask_size,
+            'data' => $data,
+        ];
+        
+        $this->_icoImages[] = $image;
+    }
+
+    /**
+     * Generate the final ICO data by creating a file header and adding the image data.
+     * This function has been written by: https://github.com/chrisbliss18/php-ico/blob/master/class-php-ico.php
+     */
+    private function _getIcoData() {
+        if (!is_array($this->_icoImages) || empty($this->_icoImages)) {
+            return false;
+        }
+        
+        $data = pack('vvv', 0, 1, count($this->_icoImages));
+        $pixel_data = '';
+        
+        $icon_dir_entry_size = 16;
+        
+        $offset = 6 + ($icon_dir_entry_size * count($this->_icoImages));
+        
+        foreach ($this->_icoImages as $image) {
+            $data .= pack('CCCCvvVV', $image['width'], $image['height'], $image['color_palette_colors'], 0, 1, $image['bits_per_pixel'], $image['size'], $offset);
+            $pixel_data .= $image['data'];
+            
+            $offset += $image['size'];
+        }
+        
+        $data .= $pixel_data;
+        unset($pixel_data);
+        
+        return $data;
+    }
 	
 	/**
 	* Checks if url is valid. Thanks to:
@@ -421,7 +592,7 @@ class Thumbnailer {
 			fwrite($socket, "HEAD ".$documentpath." HTTP/1.0\r\nHost: $host\r\n\r\n");
 			$http_response = fgets($socket, 22);
 			
-			if (strpos($http_response, '200 OK') !== false || strpos($http_response, '302 Found') !== false) {
+			if (strpos($http_response, '200 OK') !== false || strpos($http_response, '302') !== false) {
 				return true;
 				fclose($socket);
 			} else {
@@ -667,11 +838,6 @@ class Thumbnailer {
 		return $new;
 	}
 
-	/**
-	 * Applies php filter to an image, all php filters are supported
-	 * @param  Imageresource $img Image to apply filter to
-	 * @return void
-	 */
 	public function applyFilter($img) {
 		if (is_string($this->_options['filter'])) {
 			$this->_options['filter'] = array($this->_options['filter']);
@@ -707,12 +873,11 @@ class Thumbnailer {
 		}
 	}
 
-	/**
-	 * Mirrors image (can be vertically, horisontally or both)
-	 * @param  Imageresource $img Image to mirror
-	 * @return void
-	 */
 	public function mirror($img) {
+		if (is_string($this->_options['mirror'])) {
+			$this->_options['mirror'] = [$this->_options['mirror']];
+		}
+
 		$needMirroring = false;
 		$width = imagesx($img);
 		$height = imagesy($img);
@@ -758,13 +923,20 @@ class Thumbnailer {
 		if ($this->_options['type'] === '') {
 			$this->_options['type'] = $this->_getImageType($this->_options['fullpath']);
 		}
-		
+
 		switch ($this->_options['type']) {
 			case 'gif':
 				return imagegif($image, $path);
 				break;
 			case 'png':
 				return imagepng($image, $path);
+				break;
+			case 'ico':
+				if ($path === null) {
+					echo $image;
+				} else {
+					file_put_contents($path, $image);
+				}
 				break;
 			case 'jpg':
 			case 'jpeg':
@@ -787,10 +959,10 @@ class Thumbnailer {
 	}
 	
 	/**
-	* Checks if dir exists and makes one if not
-	* @param  string $dir Directory name
-	* @return void
-	*/
+	 * Checks if dir exists and makes one if not
+	 * @param  string $dir Directory name
+	 * @return void
+	 */
 	private function _makeDir($dir) {
 		if (!is_dir($dir)) {
 			mkdir($dir, 0777, true);
