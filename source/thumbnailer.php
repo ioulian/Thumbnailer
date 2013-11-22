@@ -8,14 +8,12 @@
  *                                     By Ioulian Alexeev, me@alexju.be
  * 
  *
- * VERSION: v1.0.23
+ * VERSION: v1.0.24
  *
  * OVERVIEW:
  *
  * Creates a thumbnail on the fly for a .jpg or a .png image.
  * It can also cache the thumbnail for better performance.
- *
- * TODO: use real casting of the settings + change the thumbhelper + cast them if user uses post or get values...
  *
  * Thanks to: https://github.com/chrisbliss18 for the ico generation code
  */
@@ -28,83 +26,83 @@ $thumb->show();*/
 class Thumbnailer {
 	// Variables you can change:
 	// Cache: turn off for development, but don't forget to turn it back on
-	private $_cache = true;
+	private $_cache = false;
 	// '' is a cachefile, TODO: check not on extension, but on image type itself
 	private $_safeExtensions = array('jpg', 'jpeg', 'png', 'gif', 'tmp', '');
 	private $_defaults = array(
 		// Image path (relative to root)
-		'img' => '',
+		'img' => ['', 'string'],
 		
 		// Image path (full path, not an url)
-		'fullpath' => '',
+		'fullpath' => ['', 'string'],
 		
 		// Desired width
-		'w' => '0',
+		'w' => [0, 'int'],
 		
 		// Desired height
-		'h' => '0',
+		'h' => [0, 'int'],
 		
 		// If true, the thumbnailer will calculate the dimensions based on the original images.
 		// If false it will use the passed dimensions. This can result in vertical or horisontal bars
-		'resize' => 'true',
+		'resize' => [true, 'bool'],
 		
 		// Cropping: if set to true, the original image is cropped
-		'fill' => 'true',
+		'fill' => [true, 'bool'],
 		
 		// Background color of the image
-		'bg' => 'ffffff',
+		'bg' => ['ffffff', 'string'],
 		
 		// Foreground color (used to color the cross on empty picture)
-		'fg' => 'eeeeee',
+		'fg' => ['eeeeee', 'string'],
 		
 		// Stroke width
-		'boldness' => '2',
+		'boldness' => [2, 'int'],
 		
 		// Default image (relative to root)
-		'default' => '',
+		'default' => ['', 'string'],
 		
 		// .jpg quality
-		'quality' => '90',
+		'quality' => [90, 'int'],
 		
 		// Donload image name without the extension. If empty, no image download is initiated
-		'download' => '',
+		'download' => ['', 'string'],
 		
 		// Keep transparent .png's or make the bars around the image transparent
-		'transparent' => 'true',
+		'transparent' => [true, 'bool'],
 		
 		// Convert to image type ".jpg", ".jpeg", ".png", ".ico"
-		'type' => '',
+		'type' => ['', 'string'],
 		
 		// Currently only "clearcache" is supported, it clears the thumbnail cache ;)
-		'action' => '',
+		'action' => ['', 'string'],
 		
 		// Client-side cache time in days
-		'cachetime' => '7',
+		'cachetime' => [7, 'float'],
 		
 		// Position of the image inside the thumbnail: "left", "right", "center", "top", "bottom"
-		'pos' => 'center',
+		'pos' => [['center'], 'array,string'],
 		
 		// Enlarge the image to fit the thumbnail
 		// If set to false, The original image will not be scaled if it's smaller than the thumbnailer
-		'enlarge' => 'true',
+		'enlarge' => [true, 'bool'],
 		
 		// Scales the thumbnail
 		// 100x50px &scale=2 = 200x100px
-		'scale' => '1',
+		'scale' => [1, 'float'],
 		
 		// Image filters
 		// You can pass an array with filters
 		// Filters will be applied by their sorting in the array
-		'filter' => '',
+		'filter' => [[], 'array,string'],
 		
 		// Mirror image
 		// You can pass a string or an array of these values:
 		// 'horizontal' or 'vertical' (you can pass both)
-		'mirror' => '',
+		'mirror' => [[], 'array,string'],
 		
 		// ICO format sizes
 		// Pass array with the sizes you want to put into an .ico file
-		'ico_sizes' => '256,128,64,32,16',
+		'ico_sizes' => [[256, 128, 64, 32, 16], 'array,int'],
 	);
 
 	private $_possibleImageFilters = array(
@@ -162,7 +160,7 @@ class Thumbnailer {
 	private $_icoImages = [];
 	
 	// Params
-	private $_options = array();
+	private $_options = [];
 	
 	// Generated image
 	private $_image = null;
@@ -197,7 +195,7 @@ class Thumbnailer {
 		$retinaPart = '@2x.';
 		if (strpos($this->_options['fullpath'], $retinaPart) !== false) {
 			// Set the scale
-			$this->setOption('scale', (float)$this->_options['scale'] * 2);
+			$this->setOption('scale', $this->_options['scale'] * 2);
 		}
 
 		// Remove the part from the image filename
@@ -246,15 +244,12 @@ class Thumbnailer {
 	private function _setOptions($params) {
 		foreach ($this->_defaults as $key => $value) {
 			if (!array_key_exists($key, $params)) {
-				$this->_options[$key] = $value;
+				// Use default
+				$this->_options[$key] = $value[0];
 			} else {
-				$this->_options[$key] = $params[$key];
+				$this->setOption($key, $params[$key]);
 			}
 		}
-
-		// Per option overrides
-		$this->_options['pos'] = explode(',', $this->_options['pos']);
-		$this->_options['ico_sizes'] = explode(',', $this->_options['ico_sizes']);
 	}
 	
 	/**
@@ -264,7 +259,49 @@ class Thumbnailer {
 	* @param string $value Option value
 	*/
 	public function setOption($key, $value) {
-		$this->_options[$key] = $value;
+		if (!isset($this->_defaults[$key])) {
+			return;
+		}
+
+		$type = explode(',', $this->_defaults[$key][1]);
+		$newValue = null;
+		if ($type[0] === 'string') {
+			$newValue = (string)$value;
+		} else if ($type[0] === 'int' && is_numeric($value)) {
+			$newValue = (int)$value;
+		} else if ($type[0] === 'float' && is_numeric($value)) {
+			$newValue = (float)$value;
+		} else if ($type[0] === 'bool') {
+			if (is_bool($value)) {
+				$newValue = $value;
+			} else if ($value === 1 || in_array($value, ['true', 'on', 'yes', 'y'])) {
+				$newValue = true;
+			} else if ($value === 0 || in_array($value, ['false', 'off', 'no', 'n'])) {
+				$newValue = false;
+			}
+		} else if ($type[0] === 'array') {
+			if (is_array($value)) {
+				$newValue = $value;
+			} else if (is_string($value)) {
+				if (strpos($value, ',') !== false) {
+					$newValue = explode(',', $value);
+				} else {
+					$newValue = [$value];
+				}
+			}
+
+			foreach ($newValue as &$item) {
+				if ($type[1] === 'string') {
+					$item = (string)$item;
+				} else if ($type[1] === 'int') {
+					$item = (int)$item;
+				}
+			}
+		}
+
+		if ($newValue !== null) {
+			$this->_options[$key] = $newValue;
+		}
 	}
 	
 	/**
@@ -351,7 +388,7 @@ class Thumbnailer {
 		// Show image
 		if ($this->_cache) {
 			// Sets cache headers
-			$cacheTime = 3600 * 24 * (int)$this->_options['cachetime'];
+			$cacheTime = 3600 * 24 * $this->_options['cachetime'];
 			$fileModifiedDate = filemtime($this->_cachePath.$this->_pathSeparator.$this->_cachedFileName);
 			header('Expires: '.gmdate("D, d M Y H:i:s", $fileModifiedDate + $cacheTime));
 			header('Cache-Control: max-age='.$cacheTime.', public');
@@ -411,9 +448,9 @@ class Thumbnailer {
 		$image = null;
 		if ($this->_urlExists($this->_options['fullpath']) || file_exists($this->_options['fullpath'])) {
 			if ($this->_options['type'] === "ico") {
-				$this->_options['w'] = '256';
-				$this->_options['h'] = '256';
-				$this->_options['resize'] = 'false';
+				$this->_options['w'] = 256;
+				$this->_options['h'] = 256;
+				$this->_options['resize'] = false;
 			}
 
 			$image = $this->resizeImage();
@@ -433,7 +470,7 @@ class Thumbnailer {
 	 */
 	private function _makeIco($image) {
 		foreach ($this->_options['ico_sizes'] as $size) {
-			if (!in_array((int)$size, [256, 128, 64, 32, 16])) {
+			if (!in_array($size, [256, 128, 64, 32, 16])) {
 				continue;
 			}
 
@@ -626,11 +663,11 @@ class Thumbnailer {
 		
 		// Cross
 		// Check if dimensions are valid
-		$this->_options['w'] = ((int)$this->_options['w'] > 0) ? $this->_options['w'] : '100';
-		$this->_options['h'] = ((int)$this->_options['h'] > 0) ? $this->_options['h'] : '100';
+		$this->_options['w'] = ($this->_options['w'] > 0) ? $this->_options['w'] : '100';
+		$this->_options['h'] = ($this->_options['h'] > 0) ? $this->_options['h'] : '100';
 		
-		$this->_drawLine($image, 0, 0, (int)$this->_options['w'], (int)$this->_options['h'], $accent, $this->_options['boldness']);
-		$this->_drawLine($image, (int)$this->_options['w'], 0, 0, (int)$this->_options['h'], $accent, $this->_options['boldness']);
+		$this->_drawLine($image, 0, 0, $this->_options['w'], $this->_options['h'], $accent, $this->_options['boldness']);
+		$this->_drawLine($image, $this->_options['w'], 0, 0, $this->_options['h'], $accent, $this->_options['boldness']);
 		
 		return $image;
 	}
@@ -699,20 +736,20 @@ class Thumbnailer {
 		$ratioOriginal = $widthOriginal / $heightOriginal;
 		
 		// Sanity check
-		if ((int)$this->_options['w'] <= 0 && (int)$this->_options['h'] <= 0) {
+		if ($this->_options['w'] <= 0 && $this->_options['h'] <= 0) {
 			$this->_options['w'] = $widthOriginal;
 			$this->_options['h'] = $heightOriginal;
 		}
 		
 		// Set max dimensions
-		$widthMax = (int)$this->_options['w'];
-		$heightMax = (int)$this->_options['h'];
+		$widthMax = $this->_options['w'];
+		$heightMax = $this->_options['h'];
 		
 		// Create image resource
 		$img = $this->_createImageFromFile();
 		
 		// Resize the thumbnail
-		if ($this->_options['resize'] === 'true') { // Resize = the size of the image will be calculated upon resize
+		if ($this->_options['resize'] === true) { // Resize = the size of the image will be calculated upon resize
 			$ratio = 1;
 			if ($widthMax <= 0) {
 				$ratio = $heightMax / $heightOriginal;
@@ -725,12 +762,12 @@ class Thumbnailer {
 			$widthNew = $widthOriginal * $ratio;
 			$heightNew = $heightOriginal * $ratio;
 
-			if ($this->_options['enlarge'] === 'false') {
+			if ($this->_options['enlarge'] === false) {
 				$widthNew = ($widthNew >= $widthOriginal) ? $widthOriginal : $widthNew;
 				$heightNew = ($heightNew >= $heightOriginal) ? $heightOriginal : $heightNew;
 			}
-		} else if ($this->_options['resize'] === 'false') { // Do not resize = the size will be always the same
-			if ($this->_options['fill'] === 'true') { // Fill = no bars around the image = the image is cropped
+		} else if ($this->_options['resize'] === false) { // Do not resize = the size will be always the same
+			if ($this->_options['fill'] === true) { // Fill = no bars around the image = the image is cropped
 				if ($widthMax / $heightMax >= $ratioOriginal) {
 					$widthNew = $widthMax;
 					$heightNew = $widthMax / $ratioOriginal;
@@ -738,7 +775,7 @@ class Thumbnailer {
 					$widthNew = $heightMax * $ratioOriginal;
 					$heightNew = $heightMax;
 				}
-			} else if ($this->_options['fill'] === 'false') { // The whole image is visible with bars
+			} else if ($this->_options['fill'] === false) { // The whole image is visible with bars
 				if ($widthMax / $heightMax <= $ratioOriginal) {
 					$widthNew = $widthMax;
 					$heightNew = $widthMax / $ratioOriginal;
@@ -750,14 +787,14 @@ class Thumbnailer {
 		}
 
 		// Use original size if image is smaller and enlarge is set to false
-		if ($this->_options['enlarge'] === 'false') {
+		if ($this->_options['enlarge'] === false) {
 			$widthNew = ($widthNew >= $widthOriginal) ? $widthOriginal : $widthNew;
 			$heightNew = ($heightNew >= $heightOriginal) ? $heightOriginal : $heightNew;
 		}
 
 		// Position
 		$x = $y = 0;
-		if ($this->_options['resize'] === 'false') {
+		if ($this->_options['resize'] === false) {
 			$x = ($widthMax - $widthNew) / 2;
 			$y = ($heightMax - $heightNew) / 2;
 			
@@ -774,19 +811,19 @@ class Thumbnailer {
 			}
 		}
 
-		$x *= (float)$this->_options['scale'];
-		$y *= (float)$this->_options['scale'];
+		$x *= $this->_options['scale'];
+		$y *= $this->_options['scale'];
 
 		// Set thumbnail size
 		$new = null;
-		if ($this->_options['resize'] === 'true') {
-			$new = imagecreatetruecolor($widthNew * (float)$this->_options['scale'], $heightNew * (float)$this->_options['scale']);
-		} else if ($this->_options['resize'] === 'false') {
-			$new = imagecreatetruecolor($widthMax * (float)$this->_options['scale'], $heightMax * (float)$this->_options['scale']);
+		if ($this->_options['resize'] === true) {
+			$new = imagecreatetruecolor($widthNew * $this->_options['scale'], $heightNew * $this->_options['scale']);
+		} else if ($this->_options['resize'] === false) {
+			$new = imagecreatetruecolor($widthMax * $this->_options['scale'], $heightMax * $this->_options['scale']);
 		}
 		
 		// Preserve transparency
-		if ($this->_options['transparent'] !== 'false' &&
+		if ($this->_options['transparent'] !== false &&
 				($this->_options['type'] !== 'jpg' ||
 					$this->_options['type'] !== 'jpeg')
 			) {
@@ -798,7 +835,7 @@ class Thumbnailer {
 				$transparentIndex = imagecolorallocate($new, $transparentColor['red'], $transparentColor['green'], $transparentColor['blue']);
 				imagefill($new, 0, 0, $transparentIndex);
 				imagecolortransparent($new, $transparentIndex);
-			} else if ($this->_getImageType($this->_options['fullpath']) === "png" ||
+			} else if ($this->_getImageType($this->_options['fullpath']) === 'png' ||
 					$this->_options['type'] === 'png') {
 				// If no transparent index is set, make one (only for png)
 				imagealphablending($new, false);
@@ -811,9 +848,9 @@ class Thumbnailer {
 		}
 		
 		// Draw bg
-		if ($this->_options['transparent'] === 'false' ||
+		if ($this->_options['transparent'] === false ||
 				($this->_options['type'] === 'jpg' || $this->_options['type'] === 'jpeg') ||
-				($this->_options['type'] === '' && $this->_getImageType($this->_options['fullpath']) === "jpeg")
+				($this->_options['type'] === '' && $this->_getImageType($this->_options['fullpath']) === 'jpeg')
 			) {
 			$background = $this->_hex2RGB($this->_options['bg']);
 			imagefill($new, 0, 0, imagecolorallocate($new, $background['red'], $background['green'], $background['blue']));
@@ -826,8 +863,8 @@ class Thumbnailer {
 			$y,
 			0,
 			0,
-			round($widthNew * (float)$this->_options['scale']),
-			round($heightNew * (float)$this->_options['scale']),
+			round($widthNew * $this->_options['scale']),
+			round($heightNew * $this->_options['scale']),
 			round($widthOriginal),
 			round($heightOriginal)
 		);
@@ -839,12 +876,8 @@ class Thumbnailer {
 	}
 
 	public function applyFilter($img) {
-		if (is_string($this->_options['filter'])) {
-			$this->_options['filter'] = array($this->_options['filter']);
-		}
-
 		foreach ($this->_options['filter'] as $filter) {
-			$options = explode(',', $filter);
+			$options = explode(';', $filter);
 			if (!isset($options[0]) || !isset($this->_possibleImageFilters[$options[0]])) {
 				continue;
 			}
@@ -874,10 +907,6 @@ class Thumbnailer {
 	}
 
 	public function mirror($img) {
-		if (is_string($this->_options['mirror'])) {
-			$this->_options['mirror'] = [$this->_options['mirror']];
-		}
-
 		$needMirroring = false;
 		$width = imagesx($img);
 		$height = imagesy($img);
