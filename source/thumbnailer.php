@@ -26,7 +26,7 @@ $thumb->show();*/
 class Thumbnailer {
 	// Variables you can change:
 	// Cache: turn off for development, but don't forget to turn it back on
-	private $_cache = false;
+	private $_cache = true;
 	// '' is a cachefile, TODO: check not on extension, but on image type itself
 	private $_safeExtensions = array('jpg', 'jpeg', 'png', 'gif', 'tmp', '');
 	private $_defaults = array(
