@@ -8,7 +8,7 @@
  *                                     By Ioulian Alexeev, me@alexju.be
  * 
  *
- * VERSION: v1.0.25
+ * VERSION: v1.0.26
  *
  * OVERVIEW:
  *
@@ -108,6 +108,12 @@ class Thumbnailer {
         // ICO format sizes
         // Pass array with the sizes you want to put into an .ico file
         'ico_sizes' => [[256, 128, 64, 32, 16], 'array,int'],
+        
+        // Add a color overlay on the image
+        // Pass an array of the hex color and an int (0-255) for the transparency of the color
+        // 0 = 100% transparent, 255 = 0% transparent
+        // &color_overlay=f00,127 will add a red overlay over the image with 50% transparency
+        'color_overlay' => [[], 'array,string'],
     );
 
     private $_possibleImageFilters = array(
@@ -890,6 +896,22 @@ class Thumbnailer {
             round($widthOriginal),
             round($heightOriginal)
         );
+
+        if (count($this->_options['color_overlay']) === 2) {
+            $color = $this->_hex2RGB($this->_options['color_overlay'][0]);
+            // value range 0 - 127 (opaque - transparent)
+            // we use 0 - 255 (transparent - opaque)
+            $alpha = floor((255 - (int)$this->_options['color_overlay'][1]) / 2);
+
+            imagefilledrectangle(
+                $new,
+                0,
+                0,
+                round($widthNew * $this->_options['scale']),
+                round($heightNew * $this->_options['scale']),
+                imagecolorallocatealpha($new, $color['red'], $color['green'], $color['blue'], $alpha)
+            );
+        }
 
         $this->applyFilter($new);
         $new = $this->mirror($new);
