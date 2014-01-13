@@ -8,7 +8,7 @@
  *                                     By Ioulian Alexeev, me@alexju.be
  * 
  *
- * VERSION: v1.0.26
+ * VERSION: v1.0.27
  *
  * OVERVIEW:
  *
@@ -114,6 +114,9 @@ class Thumbnailer {
         // 0 = 100% transparent, 255 = 0% transparent
         // &color_overlay=f00,127 will add a red overlay over the image with 50% transparency
         'color_overlay' => [[], 'array,string'],
+        
+        // Forces the script to generate a new thumbnail and update it's cache even if the cache exists
+        'force_update' => [false, 'bool'],
     );
 
     private $_possibleImageFilters = array(
@@ -352,13 +355,15 @@ class Thumbnailer {
         if (!$this->_cache // Always generate a new thumb if cache is off
                 || (!$this->_cachedFileExists && $this->_cache) // Cache is on but there's no cached image
                 || ($this->_isCacheOld() && $this->_cache) // The new image file is newer than the cache
+                || $this->_options['force_update'] === true // User forces to generate a new thumbnail
             ) {
             $this->_image = $this->makeThumb();
         }
         
         // Save thumbnail to cache if needed
-        if ($this->_cache && (!$this->_cachedFileExists || $this->_isCacheOld())) {
+        if ($this->_cache && (!$this->_cachedFileExists || $this->_isCacheOld() || $this->_options['force_update'] === true)) {
             $this->saveImage($this->_cachePath.$this->_pathSeparator.$this->_cachedFileName);
+
             if ($this->_options['type'] === 'ico') {
                 $this->_image = null;
             } else {
