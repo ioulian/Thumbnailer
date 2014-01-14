@@ -8,7 +8,7 @@
  *                                     By Ioulian Alexeev, me@alexju.be
  * 
  *
- * VERSION: v1.0.27
+ * VERSION: v1.0.28
  *
  * OVERVIEW:
  *
@@ -227,7 +227,7 @@ class Thumbnailer {
             $this->_options['img'] = str_replace('https://'.$_SERVER['HTTP_HOST'], '', $this->_options['img']);
 
             if ($this->_isExternPath($this->_options['img'])) {
-                $this->_options['fullpath'] = $this->_options['img'];
+                $this->_options['fullpath'] = str_replace(' ', '%20', $this->_options['img']);
             } else if ($this->_options['img'] === '') {
                 $this->_options['fullpath'] = $this->_root.$this->_options['default'];
             } else {
@@ -661,7 +661,7 @@ class Thumbnailer {
         } else {
             fwrite($socket, "HEAD ".$documentpath." HTTP/1.0\r\nHost: $host\r\n\r\n");
             $http_response = fgets($socket, 22);
-            
+
             if (strpos($http_response, '200 OK') !== false || strpos($http_response, '302') !== false) {
                 return true;
                 fclose($socket);
