@@ -88,7 +88,7 @@ class Thumbnailer {
         'pos' => [['center'], 'array,string'],
         
         // Enlarge the image to fit the thumbnail
-        // If set to false, The original image will not be scaled if it's smaller than the thumbnailer
+        // If set to false, The original image will not be scaled if it's smaller than the thumbnail
         'enlarge' => [true, 'bool'],
         
         // Scales the thumbnail
