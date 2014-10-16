@@ -887,6 +887,7 @@ class Thumbnailer {
             ) {
             $background = $this->_hex2RGB($this->_options['bg']);
             imagefill($new, 0, 0, imagecolorallocate($new, $background['red'], $background['green'], $background['blue']));
+            imagealphablending($new, true);
         }
         
         imagecopyresampled(
