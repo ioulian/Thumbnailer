@@ -8,7 +8,7 @@
  *                                     By Ioulian Alexeev, me@alexju.be
  * 
  *
- * VERSION: v1.0.28
+ * VERSION: v1.0.29
  *
  * OVERVIEW:
  *
@@ -16,8 +16,9 @@
  * It can also cache the thumbnail for better performance.
  *
  * Thanks to: https://github.com/chrisbliss18 for the ico generation code
+ *
+ * TODO: cleanup resizeImage function
  */
-
  
 // Uncomment for standalone usage
 /*$thumb = new Thumbnailer($_GET);
@@ -26,7 +27,7 @@ $thumb->show();*/
 class Thumbnailer {
     // Variables you can change:
     // Cache: turn off for development, but don't forget to turn it back on
-    private $_cache = true;
+    private $_cache = false;
     // '' is a cachefile, TODO: check not on extension, but on image type itself
     private $_safeExtensions = array('jpg', 'jpeg', 'png', 'gif', 'tmp', '');
     private $_defaults = array(
@@ -117,6 +118,13 @@ class Thumbnailer {
         
         // Forces the script to generate a new thumbnail and update it's cache even if the cache exists
         'force_update' => [false, 'bool'],
+        
+        // Rounded corners
+        // rounded_corners=5 or rounded_corners=5,10, or rounded_corners=5,10,2 or rounded_corners=5,10,7,3
+        'rounded_corners' => [[], 'array,int'],
+
+        // Rounded corners quality = multiplier for antialiasing
+        'rounded_corners_quality' => [10, 'int'],
     );
 
     private $_possibleImageFilters = array(
@@ -854,8 +862,7 @@ class Thumbnailer {
         } else if ($this->_options['resize'] === false) {
             $new = imagecreatetruecolor($widthMax * $this->_options['scale'], $heightMax * $this->_options['scale']);
         }
-        
-        // Preserve transparency
+
         if ($this->_options['transparent'] !== false &&
                 ($this->_options['type'] !== 'jpg' ||
                     $this->_options['type'] !== 'jpeg')
@@ -919,10 +926,62 @@ class Thumbnailer {
             );
         }
 
-        $this->applyFilter($new);
         $new = $this->mirror($new);
+        $new = $this->applyRoundedCorners($new);
+
+        $final = imagecreatetruecolor($widthNew * $this->_options['scale'], $heightNew * $this->_options['scale']);
+
+        // Preserve transparency
+        if ($this->_options['transparent'] !== false &&
+                ($this->_options['type'] !== 'jpg' ||
+                    $this->_options['type'] !== 'jpeg')
+            ) {
+            $transparentIndex = imagecolortransparent($new);
+
+            // If transparent index is set (for gif and png)
+            if ($transparentIndex >= 0) {
+                $transparentColor = imagecolorsforindex($new, $transparentIndex);
+                $transparentIndex = imagecolorallocate($final, $transparentColor['red'], $transparentColor['green'], $transparentColor['blue']);
+                imagefill($final, 0, 0, $transparentIndex);
+                imagecolortransparent($final, $transparentIndex);
+            } else if ($this->_getImageType($this->_options['fullpath']) === 'png' ||
+                    $this->_options['type'] === 'png') {
+                // If no transparent index is set, make one (only for png)
+                imagealphablending($final, false);
+                imagesavealpha($final, true);
+                
+                imagealphablending($new, true);
+                $colorTransparent = imagecolorallocatealpha($final, 255, 255, 255, 127);
+                imagefill($final, 0, 0, $colorTransparent);
+            }
+        }
+
+        // Draw bg
+        if ($this->_options['transparent'] === false ||
+                ($this->_options['type'] === 'jpg' || $this->_options['type'] === 'jpeg') ||
+                ($this->_options['type'] === '' && $this->_getImageType($this->_options['fullpath']) === 'jpeg')
+            ) {
+            $background = $this->_hex2RGB($this->_options['bg']);
+            imagefill($final, 0, 0, imagecolorallocate($new, $background['red'], $background['green'], $background['blue']));
+            imagealphablending($final, true);
+        }
+
+        imagecopyresampled(
+            $final,
+            $new,
+            $x,
+            $y,
+            0,
+            0,
+            round($widthNew * $this->_options['scale']),
+            round($heightNew * $this->_options['scale']),
+            round($widthOriginal),
+            round($heightOriginal)
+        );
+
+        $this->applyFilter($final);
         
-        return $new;
+        return $final;
     }
 
     public function applyFilter($img) {
@@ -990,6 +1049,102 @@ class Thumbnailer {
 
         return $img;
     }
+
+    //http://stackoverflow.com/questions/5766865/rounded-transparent-smooth-corners-using-imagecopyresampled-php-gd
+    public function applyRoundedCorners($src) {
+        if (count($this->_options['rounded_corners']) === 0 || count($this->_options['rounded_corners']) > 4) {
+            return $src;
+        }
+
+        $radiusTopLeft = $this->_options['rounded_corners'][0];
+        $radiusTopRight = $this->_options['rounded_corners'][0];
+        $radiusBottomRight = $this->_options['rounded_corners'][0];
+        $radiusBottomLeft = $this->_options['rounded_corners'][0];
+        if (count($this->_options['rounded_corners']) === 2) {
+            $radiusTopLeft = $this->_options['rounded_corners'][0];
+            $radiusTopRight = $this->_options['rounded_corners'][1];
+            $radiusBottomRight = $this->_options['rounded_corners'][0];
+            $radiusBottomLeft = $this->_options['rounded_corners'][1];
+        } else if (count($this->_options['rounded_corners']) === 3) {
+            $radiusTopLeft = $this->_options['rounded_corners'][0];
+            $radiusTopRight = $this->_options['rounded_corners'][1];
+            $radiusBottomRight = $this->_options['rounded_corners'][2];
+            $radiusBottomLeft = $this->_options['rounded_corners'][1];
+        } else if (count($this->_options['rounded_corners']) === 4) {
+            $radiusTopLeft = $this->_options['rounded_corners'][0];
+            $radiusTopRight = $this->_options['rounded_corners'][1];
+            $radiusBottomRight = $this->_options['rounded_corners'][2];
+            $radiusBottomLeft = $this->_options['rounded_corners'][3];
+        }
+
+        $radiusTopLeft *= $this->_options['rounded_corners_quality'];
+        $radiusTopRight *= $this->_options['rounded_corners_quality'];
+        $radiusBottomRight *= $this->_options['rounded_corners_quality'];
+        $radiusBottomLeft *= $this->_options['rounded_corners_quality'];
+
+        $w = imagesx($src);
+        $h = imagesy($src);
+
+        $nw = $w * $this->_options['rounded_corners_quality'];
+        $nh = $h * $this->_options['rounded_corners_quality'];
+
+        $img = imagecreatetruecolor($nw, $nh);
+        $black = imagecolorallocate($img, 0, 0, 0);
+        $white = imagecolorallocate($img, 255, 255, 255);
+
+        imagefill($img, 0, 0, $white);
+
+        // Top left corner
+        imagearc($img, $radiusTopLeft - 1, $radiusTopLeft - 1, $radiusTopLeft * 2, $radiusTopLeft * 2, 180, 270, $black);
+        imagefilltoborder($img, 0, 0, $black, $black);
+
+        // Top right corner
+        imagearc($img, $nw - $radiusTopRight, $radiusTopRight - 1, $radiusTopRight * 2, $radiusTopRight * 2, 270, 0, $black);
+        imagefilltoborder($img, $nw-1, 0, $black, $black);
+
+        // Bottom right corner
+        imagearc($img, $nw - $radiusBottomLeft, $nh - $radiusBottomLeft, $radiusBottomLeft * 2, $radiusBottomLeft * 2, 0, 90, $black);
+        imagefilltoborder($img, $nw-1, $nh-1, $black, $black);
+
+        // Bottom left corner
+        imagearc($img, $radiusBottomRight - 1, $nh-$radiusBottomRight, $radiusBottomRight * 2, $radiusBottomRight * 2, 90, 180, $black);
+        imagefilltoborder($img, 0, $nh - 1, $black, $black);
+
+        imagealphablending($img, true);
+        imagecolortransparent($img, $black);
+
+        # resize image down
+        $dest = imagecreatetruecolor($w, $h);
+        imagealphablending($dest, false);
+        imagecopyresampled($dest, $img, 0, 0, 0, 0, $w, $h, $nw, $nh);
+
+        $this->applyImageMask($src, $dest);
+
+        return $src;
+    }
+
+    //http://stackoverflow.com/questions/7203160/php-gd-use-one-image-to-mask-another-image-including-transparency
+    public function applyImageMask(&$src, $mask) {
+        $xSize = imagesx($src);
+        $ySize = imagesy($src);
+        $newPicture = imagecreatetruecolor($xSize, $ySize);
+        imagesavealpha($newPicture, true);
+        imagefill($newPicture, 0, 0, imagecolorallocatealpha($newPicture, 0, 0, 0, 127));
+        
+        // Perform pixel-based alpha map application
+        for ($x = 0; $x < $xSize; $x += 1) {
+            for ($y = 0; $y < $ySize; $y += 1) {
+                $alpha = imagecolorsforindex($mask, imagecolorat($mask, $x, $y));
+                $color = imagecolorsforindex($src, imagecolorat($src, $x, $y));
+                $alpha = 127 - floor((127 - $color['alpha']) * ($alpha['red'] / 255));
+                imagesetpixel($newPicture, $x, $y, imagecolorallocatealpha($newPicture, $color['red'], $color['green'], $color['blue'], $alpha));
+            }
+        }
+
+        imagedestroy($src);
+        $src = $newPicture;
+    }
+
     
     /**
     * Makes and saves an image from data
@@ -1048,6 +1203,7 @@ class Thumbnailer {
             chmod($dir, 0777);
         }
     }
+      
     
     /**
     * Draws a bold line
