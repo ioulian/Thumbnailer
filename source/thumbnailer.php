@@ -8,7 +8,7 @@
  *                                     By Ioulian Alexeev, me@alexju.be
  * 
  *
- * VERSION: v1.0.29
+ * VERSION: v1.0.30
  *
  * OVERVIEW:
  *
@@ -24,7 +24,7 @@
 /*$thumb = new Thumbnailer($_GET);
 $thumb->show();*/
 
-class Thumbnailer {
+class X_Image_Thumbnailer {
     // Variables you can change:
     // Cache: turn off for development, but don't forget to turn it back on
     private $_cache = true;
@@ -929,7 +929,7 @@ class Thumbnailer {
         $new = $this->mirror($new);
         $new = $this->applyRoundedCorners($new);
 
-        $final = imagecreatetruecolor($widthNew * $this->_options['scale'], $heightNew * $this->_options['scale']);
+        $final = imagecreatetruecolor(imagesx($new), imagesy($new));
 
         // Preserve transparency
         if ($this->_options['transparent'] !== false &&
@@ -969,14 +969,14 @@ class Thumbnailer {
         imagecopyresampled(
             $final,
             $new,
-            $x,
-            $y,
             0,
             0,
-            round($widthNew * $this->_options['scale']),
-            round($heightNew * $this->_options['scale']),
-            round($widthOriginal),
-            round($heightOriginal)
+            0,
+            0,
+            imagesx($new),
+            imagesy($new),
+            imagesx($new),
+            imagesy($new)
         );
 
         $this->applyFilter($final);
