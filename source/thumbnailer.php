@@ -8,7 +8,7 @@
  *                                     By Ioulian Alexeev, me@alexju.be
  * 
  *
- * VERSION: v1.0.30
+ * VERSION: v1.0.31
  *
  * OVERVIEW:
  *
@@ -24,10 +24,13 @@
 /*$thumb = new Thumbnailer($_GET);
 $thumb->show();*/
 
-class Thumbnailer {
+class X_Image_Thumbnailer {
     // Variables you can change:
     // Cache: turn off for development, but don't forget to turn it back on
     private $_cache = true;
+    // Debug mode: turn on for development, but you should disable it when on production
+    // This shows PHP notices/warnings and Thumbnailer errors
+    private $_debug = false;
     // '' is a cachefile, TODO: check not on extension, but on image type itself
     private $_safeExtensions = array('jpg', 'jpeg', 'png', 'gif', 'tmp', '');
     private $_defaults = array(
@@ -191,6 +194,8 @@ class Thumbnailer {
     private $_pathSeparator = null;
     
     public function __construct($params = null, $root = null, $cacheRelativePath = '/tmp') {
+        error_reporting($this->_debug === true ? -1 : 0);
+
         $this->_setOptions($params);
         
         // Init variables
@@ -254,7 +259,7 @@ class Thumbnailer {
         if (file_exists($this->_options['fullpath'])) {
             $info = pathinfo($this->_options['fullpath']);
             if (isset($info['extension']) && !in_array(strtolower($info['extension']), $this->_safeExtensions)) {
-                throw new Exception('Unsafe extension ".'.$info['extension'].'"! Aborting script.');
+                $this->_exitWithError('Unsafe extension ".'.$info['extension'].'"! Aborting script.');
             }
         }
     }
@@ -353,11 +358,8 @@ class Thumbnailer {
     */
     private function _handleThumbRequest() {
         // Check for stored cache
-        $this->_cachedFileName = md5($_SERVER['QUERY_STRING'] . serialize($this->_options));
+        $this->_cachedFileName = md5($_SERVER['QUERY_STRING'].serialize($this->_options));
         $this->_cachedFileExists = file_exists($this->_cachePath.$this->_pathSeparator.$this->_cachedFileName);
-
-        // Check if the cached image is older than the file. We can only check if the image is on current server
-          
         
         // Create thumb
         if (!$this->_cache // Always generate a new thumb if cache is off
@@ -438,6 +440,24 @@ class Thumbnailer {
             }
         }
     }
+
+    /**
+     * Outputs error header if image is not found or is invalid filetype
+     */
+    private function _setOutputErrorHeader() {
+        header("HTTP/1.0 404 Not Found");
+    }
+
+    /**
+     * Exits the thumbnailer after an occured error
+     */
+    private function _exitWithError($error) {
+        $this->_setOutputErrorHeader();
+        if ($this->_debug === true) {
+            throw new Exception($error);
+        }
+        exit;
+    }
     
     /**
      * Sets headers and outputs the image
@@ -453,6 +473,9 @@ class Thumbnailer {
             // If you are using some sort of _GET, _POST, _COOKIE, ... parameters to set
             // the cache path or the root path, make sure you sanity check the path's so
             // file_get_contents doesn't ouput any other file on your server!
+            // 
+            // By default the _cachePath is created in PHP and _cachedFileName is a md5 hashed string
+            // and normally you shouldn't run into security issues here
             echo file_get_contents($this->_cachePath.$this->_pathSeparator.$this->_cachedFileName);
         } else {
             $this->_toImage($this->_image);
@@ -466,15 +489,21 @@ class Thumbnailer {
     public function clearThumbCache() {
         $dir = opendir($this->_cachePath);
         while (false !== ($file = readdir($dir))) {
-            if ($file !== "."
-                && $file !== ".."
-                && $file !== ".svn"
-                && $file !== ".git"
+            if ($file !== '.'
+                    && $file !== '..'
+                    && $file !== '.svn'
+                    && $file !== '.git'
                 ) {
-                chmod($this->_cachePath.$this->_pathSeparator.$file, 0777);
-                unlink($this->_cachePath.$this->_pathSeparator.$file) or die("Couldn't delete $this->_cachePath.'/'.$file<br />");
+
+                try {
+                    chmod($this->_cachePath.$this->_pathSeparator.$file, 0777);
+                    unlink($this->_cachePath.$this->_pathSeparator.$file);
+                } catch (Exception $ex) {
+                    $this->_exitWithError('Couldn\'t delete'.$this->_cachePath.'/'.$file.'<br />');
+                }
             }
         }
+
         closedir($dir);
         return $this;
     }
@@ -486,7 +515,6 @@ class Thumbnailer {
     * @return ImageResourceIdentifier
     */
     public function makeThumb() {
-        $image = null;
         if ($this->_urlExists($this->_options['fullpath']) || file_exists($this->_options['fullpath'])) {
             if ($this->_options['type'] === "ico") {
                 $this->_options['w'] = 256;
@@ -494,16 +522,14 @@ class Thumbnailer {
                 $this->_options['resize'] = false;
             }
 
-            $image = $this->resizeImage();
+            return $this->resizeImage();
             
             if ($this->_options['type'] === "ico") {
-                $image = $this->_makeIco($image);
+                return $this->_makeIco($image);
             }
-        } else {
-            $image = $this->makeDummyImage();
         }
-        
-        return $image;
+
+        $this->_exitWithError('File doesn\'t exist');
     }
 
     /**
@@ -738,12 +764,12 @@ class Thumbnailer {
                 case IMG_PNG:
                     return 'png';
                     break; 
-                default: 
-                    throw new Exception('Image type ('.$type.') not supported.');
+                default:
+                    $this->_exitWithError('Image type ('.$type.') not supported.');
             }
         }
-        
-        return 'png';
+
+        $this->_exitWithError('File doesn\'t exist');
     }
     
     /**
@@ -763,6 +789,8 @@ class Thumbnailer {
             case 'png':
                 return imagecreatefrompng($this->_options['fullpath']);
                 break;
+            default:
+                $this->_exitWithError('Couldn\'t create an image from file');
         }
     }
     
@@ -1158,24 +1186,30 @@ class Thumbnailer {
             $this->_options['type'] = $this->_getImageType($this->_options['fullpath']);
         }
 
-        switch ($this->_options['type']) {
-            case 'gif':
-                return imagegif($image, $path);
-                break;
-            case 'png':
-                return imagepng($image, $path);
-                break;
-            case 'ico':
-                if ($path === null) {
-                    echo $image;
-                } else {
-                    file_put_contents($path, $image);
-                }
-                break;
-            case 'jpg':
-            case 'jpeg':
-                return imagejpeg($image, $path, $this->_options['quality']);
-                break;
+        try {
+            switch ($this->_options['type']) {
+                case 'gif':
+                    return imagegif($image, $path);
+                    break;
+                case 'png':
+                    return imagepng($image, $path);
+                    break;
+                case 'ico':
+                    if ($path === null) {
+                        echo $image;
+                    } else {
+                        file_put_contents($path, $image);
+                    }
+                    break;
+                case 'jpg':
+                case 'jpeg':
+                    return imagejpeg($image, $path, $this->_options['quality']);
+                    break;
+                default:
+                    $this->_exitWithError('Cannot convert to image type "'.$this->_options['type'].'"');
+            }
+        } catch (Exception $ex) {
+            $this->_exitWithError('Couldn\'t convert to image type "'.$this->_options['type'].'"');
         }
     }
     
@@ -1199,8 +1233,12 @@ class Thumbnailer {
      */
     private function _makeDir($dir) {
         if (!is_dir($dir)) {
-            mkdir($dir, 0777, true);
-            chmod($dir, 0777);
+            try {
+                mkdir($dir, 0777, true);
+                chmod($dir, 0777);
+            } catch (Exception $ex) {
+                $this->_exitWithError('Could not create directory "'.$dir.'"');
+            }
         }
     }
       
