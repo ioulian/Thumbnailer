@@ -522,11 +522,13 @@ class Thumbnailer {
                 $this->_options['resize'] = false;
             }
 
-            return $this->resizeImage();
+            $image = $this->resizeImage();
             
             if ($this->_options['type'] === "ico") {
                 return $this->_makeIco($image);
             }
+
+            return $image;
         }
 
         $this->_exitWithError('File doesn\'t exist');
