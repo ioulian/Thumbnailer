@@ -705,7 +705,7 @@ class Thumbnailer {
             fwrite($socket, "HEAD ".$documentpath." HTTP/1.0\r\nHost: $host\r\n\r\n");
             $http_response = fgets($socket, 22);
 
-            if (strpos($http_response, '200 OK') !== false || strpos($http_response, '302') !== false) {
+            if (strpos($http_response, '200 OK') !== false || strpos($http_response, '302') !== false || strpos($http_response, '301') !== false) {
                 return true;
                 fclose($socket);
             } else {
