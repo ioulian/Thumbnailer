@@ -8,7 +8,7 @@
  *                                     By Ioulian Alexeev, me@alexju.be
  *
  *
- * VERSION: v1.0.34
+ * VERSION: v1.0.35
  *
  * OVERVIEW:
  *
@@ -184,6 +184,7 @@ class Thumbnailer {
     private $_cachePath = '';
     private $_cachedFileName = '';
     private $_cachedFileExists = false;
+    private $_cleanupFile = null;
 
     private $_icoImages = [];
 
@@ -202,6 +203,8 @@ class Thumbnailer {
             ini_set('display_errors', 1);
             ini_set('display_startup_errors', 1);
         }
+        
+        
 
         $this->_setOptions($params);
 
@@ -248,6 +251,18 @@ class Thumbnailer {
 
             if ($this->_isExternPath($this->_options['img'])) {
                 $this->_options['fullpath'] = str_replace(' ', '%20', $this->_options['img']);
+
+                $localFile = $this->_cachePath.'/'.md5($this->_options['fullpath']);
+
+                $this->_cleanupFile = $localFile;
+                $image = file_get_contents($this->_options['fullpath'], false, stream_context_create([
+                    'ssl' => [
+                        'verify_peer' => false,
+                        'verify_peer_name' => false,
+                    ],
+                ]));
+                file_put_contents($localFile, $image);
+                $this->_options['fullpath'] = $localFile;
             } else if ($this->_options['img'] === '') {
                 $this->_options['fullpath'] = $this->_root.$this->_options['default'];
             } else {
@@ -487,6 +502,10 @@ class Thumbnailer {
         } else {
             $this->_toImage($this->_image);
         }
+
+        if ($this->_cleanupFile !== null) {
+            unlink($localFile);
+        }
     }
 
     /**
@@ -539,7 +558,7 @@ class Thumbnailer {
         }
 
         if ($this->_options['placeholder'] === true) {
-          return $this->makeDummyImage();
+            return $this->makeDummyImage();
         }
 
         $this->_exitWithError('File doesn\'t exist');
@@ -783,7 +802,7 @@ class Thumbnailer {
         }
 
         if ($this->_options['placeholder'] === true) {
-          return 'png';
+            return 'png';
         }
 
         $this->_exitWithError('File doesn\'t exist');
