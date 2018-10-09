@@ -24,7 +24,7 @@
 /*$thumb = new Thumbnailer($_GET);
 $thumb->show();*/
 
-class Thumbnailer {
+class X_Image_Thumbnailer {
     // Variables you can change:
     // Cache: turn off for development, but don't forget to turn it back on
     private $_cache = true;
@@ -203,8 +203,6 @@ class Thumbnailer {
             ini_set('display_errors', 1);
             ini_set('display_startup_errors', 1);
         }
-        
-        
 
         $this->_setOptions($params);
 
@@ -251,18 +249,6 @@ class Thumbnailer {
 
             if ($this->_isExternPath($this->_options['img'])) {
                 $this->_options['fullpath'] = str_replace(' ', '%20', $this->_options['img']);
-
-                $localFile = $this->_cachePath.'/'.md5($this->_options['fullpath']);
-
-                $this->_cleanupFile = $localFile;
-                $image = file_get_contents($this->_options['fullpath'], false, stream_context_create([
-                    'ssl' => [
-                        'verify_peer' => false,
-                        'verify_peer_name' => false,
-                    ],
-                ]));
-                file_put_contents($localFile, $image);
-                $this->_options['fullpath'] = $localFile;
             } else if ($this->_options['img'] === '') {
                 $this->_options['fullpath'] = $this->_root.$this->_options['default'];
             } else {
@@ -389,6 +375,21 @@ class Thumbnailer {
             || ($this->_isCacheOld() && $this->_cache) // The new image file is newer than the cache
             || $this->_options['force_update'] === true // User forces to generate a new thumbnail
         ) {
+            // Donwload locally if external path
+            if ($this->_isExternPath($this->_options['fullpath'])) {
+                $localFile = $this->_cachePath.'/'.md5($this->_options['fullpath']);
+
+                $this->_cleanupFile = $localFile;
+                $image = file_get_contents($this->_options['fullpath'], false, stream_context_create([
+                    'ssl' => [
+                        'verify_peer' => false,
+                        'verify_peer_name' => false,
+                    ],
+                ]));
+                file_put_contents($localFile, $image);
+                $this->_options['fullpath'] = $localFile;
+            }
+
             $this->_image = $this->makeThumb();
         }
 
@@ -400,6 +401,10 @@ class Thumbnailer {
                 $this->_image = null;
             } else {
                 imagedestroy($this->_image);
+
+                if ($this->_cleanupFile !== null) {
+                    unlink($localFile);
+                }
             }
         }
 
@@ -501,10 +506,6 @@ class Thumbnailer {
             echo file_get_contents($this->_cachePath.$this->_pathSeparator.$this->_cachedFileName);
         } else {
             $this->_toImage($this->_image);
-        }
-
-        if ($this->_cleanupFile !== null) {
-            unlink($localFile);
         }
     }
 
