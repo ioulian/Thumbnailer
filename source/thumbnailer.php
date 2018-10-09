@@ -8,7 +8,7 @@
  *                                     By Ioulian Alexeev, me@alexju.be
  *
  *
- * VERSION: v1.0.33
+ * VERSION: v1.0.34
  *
  * OVERVIEW:
  *
@@ -197,7 +197,11 @@ class Thumbnailer {
     private $_pathSeparator = null;
 
     public function __construct($params = null, $root = null, $cacheRelativePath = '/tmp') {
-        error_reporting($this->_debug === true ? -1 : 0);
+        error_reporting($this->_debug === true ? E_ALL : 0);
+        if ($this->_debug === true) {
+            ini_set('display_errors', 1);
+            ini_set('display_startup_errors', 1);
+        }
 
         $this->_setOptions($params);
 
